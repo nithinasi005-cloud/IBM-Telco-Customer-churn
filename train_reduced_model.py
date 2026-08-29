@@ -1,23 +1,25 @@
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from xgboost import XGBClassifier
+from sklearn.ensemble import GradientBoostingClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
 
-def train_model():
+def train_tuned_model():
     print("Loading dataset...")
     df = pd.read_csv('WA_Fn-UseC_-Telco-Customer-Churn.csv')
 
-    # Data Preprocessing
+    # Preprocess numeric columns
     df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
-    df['SeniorCitizen'] = df['SeniorCitizen'].astype(str)
+    df['TotalCharges'] = df['TotalCharges'].fillna(df['MonthlyCharges'] * df['tenure'])
 
-    # Top 8 important features
+    # Key features for optimal performance & simple UI
     selected_features = [
         'tenure',
         'Contract',
@@ -26,6 +28,7 @@ def train_model():
         'TechSupport',
         'PaymentMethod',
         'MonthlyCharges',
+        'TotalCharges',
         'PaperlessBilling'
     ]
 
@@ -50,21 +53,60 @@ def train_model():
         ]), cat_cols)
     ])
 
-    model_pipeline = Pipeline(steps=[
+    # Base models with tuned hyperparameters
+    xgb_tuned = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.03,
+        max_depth=4,
+        subsample=0.7,
+        colsample_bytree=0.8,
+        min_child_weight=1,
+        eval_metric='logloss',
+        random_state=42
+    )
+
+    lr_tuned = LogisticRegression(C=0.5, max_iter=1000, random_state=42)
+
+    gb_tuned = GradientBoostingClassifier(
+        n_estimators=100,
+        learning_rate=0.03,
+        max_depth=3,
+        random_state=42
+    )
+
+    # Stacking Ensemble
+    stacking_ensemble = StackingClassifier(
+        estimators=[
+            ('xgb', xgb_tuned),
+            ('lr', lr_tuned),
+            ('gb', gb_tuned)
+        ],
+        final_estimator=LogisticRegression(),
+        cv=5
+    )
+
+    full_pipeline = Pipeline(steps=[
         ('preprocessor', preprocessor),
-        ('classifier', XGBClassifier(eval_metric='logloss', random_state=42))
+        ('classifier', stacking_ensemble)
     ])
 
-    print("Fitting model on reduced 8 features...")
-    model_pipeline.fit(X_train, y_train)
+    print("Training Hyperparameter-Tuned Stacking Ensemble Model...")
+    full_pipeline.fit(X_train, y_train)
 
-    y_pred = model_pipeline.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print(f"\nModel Accuracy on Test Set: {acc * 100:.2f}%\n")
+    # Evaluation
+    y_pred = full_pipeline.predict(X_test)
+    test_acc = accuracy_score(y_test, y_pred)
+
+    cv_scores = cross_val_score(full_pipeline, X_train, y_train, cv=5, scoring='accuracy')
+
+    print(f"\n==========================================")
+    print(f"5-Fold Cross-Validation Accuracy: {cv_scores.mean() * 100:.2f}%")
+    print(f"Test Set Accuracy:                {test_acc * 100:.2f}%")
+    print(f"==========================================\n")
     print(classification_report(y_test, y_pred))
 
-    joblib.dump(model_pipeline, 'best_churn_model.pkl')
-    print("Model saved successfully as 'best_churn_model.pkl'!")
+    joblib.dump(full_pipeline, 'best_churn_model.pkl')
+    print("Hyperparameter-tuned model saved successfully as 'best_churn_model.pkl'!")
 
 if __name__ == '__main__':
-    train_model()
+    train_tuned_model()
