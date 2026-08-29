@@ -1,0 +1,21 @@
+# Python virtual environments & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Streamlit
+.streamlit/
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary files
+*.tmp
+
+# Unrelated files
+cancer_reg.csv
